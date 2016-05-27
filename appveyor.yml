@@ -1,0 +1,69 @@
+version: 0.6.4.{build}-{branch}
+configuration: Release
+platform: Any CPU
+clone_depth: 1
+clone_folder: C:\consul
+init:
+- if "%APPVEYOR_REPO_TAG%" == "true" set APPVEYOR_BUILD_VERSION=%APPVEYOR_REPO_TAG_NAME%
+assembly_info:
+  patch: true
+  file: '**\AssemblyInfo.*'
+  assembly_version: $(APPVEYOR_BUILD_VERSION)
+  assembly_file_version: $(APPVEYOR_BUILD_VERSION)
+  assembly_informational_version: $(APPVEYOR_BUILD_VERSION)
+environment:
+  CONSUL_VERSION: 0.6.4
+install:
+- ps: >-
+    $consul_version = '0.6.4'
+    
+    choco install 7zip.commandline
+
+    $consul_zip = "consul_$($consul_version)_windows_386.zip"
+
+    if (!(test-path "c:\consul_install")) {mkdir c:\consul_install}
+
+    write-output "Downloading https://releases.hashicorp.com/consul/$consul_version/$consul_zip"
+
+    if (!(test-path "c:\consul_install\$consul_zip")) {(new-object net.webclient).downloadfile("https://releases.hashicorp.com/consul/$consul_version/$consul_zip", "c:\consul_install\$consul_zip")}
+
+    7z x -y c:\consul_install\$consul_zip -oc:\consul\consul.test
+cache:
+- C:\ProgramData\chocolatey\bin -> appveyor.yml
+- C:\ProgramData\chocolatey\lib -> appveyor.yml
+- C:\consul_install -> appveyor.yml
+nuget:
+  disable_publish_on_pr: true
+before_build:
+- nuget restore
+build:
+  publish_nuget: true
+  publish_nuget_symbols: true
+  verbosity: minimal
+before_test:
+- ps: >-
+    $consulJob = Start-Job {C:\consul\Consul.Test\consul.exe agent -dev -config-file C:\consul\Consul.Test\test_config.json}
+
+    $running = $false
+
+    do {
+      Receive-Job -Job $consulJob
+      if ($running -and $consulJob.State -ne "Running") {break}
+      if ($consulJob.State -eq "Running") {
+        $running = $true
+        try {$result = convertfrom-json (invoke-webrequest -UseBasicParsing -TimeoutSec 1 -Uri http://localhost:8500/v1/status/leader).Content; sleep 1} catch {write-output "Waiting for Consul to come up..."}
+      }
+    } until (![string]::IsNullOrEmpty($result))
+
+    Receive-Job $consulJob
+after_test:
+- ps: >-
+    Get-Job | Stop-Job
+
+    Get-Job | Receive-Job
+deploy:
+- provider: NuGet
+  api_key:
+    secure: dv44i0f5BvM3LZRUU/B0emsLEIbO9geASxNnMd074SXPligvsk81P8nzY/3m2z/z
+  on:
+    APPVEYOR_REPO_TAG: true

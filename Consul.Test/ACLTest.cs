@@ -16,106 +16,96 @@
 //  </copyright>
 // -----------------------------------------------------------------------
 
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
+using System.Threading.Tasks;
+using Xunit;
 
 namespace Consul.Test
 {
-    [TestClass]
     public class ACLTest
     {
         private const string ConsulRoot = "yep";
 
-        [TestMethod]
-        public void ACL_CreateDestroy()
+        [SkippableFact]
+        public async Task ACL_CreateDestroy()
         {
-            if (string.IsNullOrEmpty(ConsulRoot))
-            {
-                Assert.Inconclusive();
-            }
+            Skip.If(string.IsNullOrEmpty(ConsulRoot));
 
-            var client = new Client();
-            var c = new Client(new Config() {Token = ConsulRoot});
-            var ae = new ACLEntry()
+            var client = new ConsulClient(new ConsulClientConfiguration() { Token = ConsulRoot });
+            var aclEntry = new ACLEntry()
             {
                 Name = "API Test",
                 Type = ACLType.Client,
                 Rules = "key \"\" { policy = \"deny\" }"
             };
-            var res = c.ACL.Create(ae);
+            var res = await client.ACL.Create(aclEntry);
             var id = res.Response;
 
-            Assert.AreNotEqual(res.RequestTime.TotalMilliseconds, 0);
-            Assert.IsFalse(string.IsNullOrEmpty(res.Response));
+            Assert.NotEqual(TimeSpan.Zero, res.RequestTime);
+            Assert.False(string.IsNullOrEmpty(res.Response));
 
-            var ae2 = c.ACL.Info(id);
+            var aclEntry2 = await client.ACL.Info(id);
 
-            Assert.IsNotNull(ae2.Response);
-            Assert.AreEqual(ae.Name, ae2.Response.Name);
-            Assert.AreEqual(ae.Type, ae2.Response.Type);
-            Assert.AreEqual(ae.Rules, ae2.Response.Rules);
+            Assert.NotNull(aclEntry2.Response);
+            Assert.Equal(aclEntry2.Response.Name, aclEntry.Name);
+            Assert.Equal(aclEntry2.Response.Type, aclEntry.Type);
+            Assert.Equal(aclEntry2.Response.Rules, aclEntry.Rules);
 
-            var des = c.ACL.Destroy(id);
-            Assert.IsTrue(des.Response);
+            Assert.True((await client.ACL.Destroy(id)).Response);
         }
 
-        [TestMethod]
-        public void ACL_CloneUpdateDestroy()
+        [Fact]
+        public async Task ACL_CloneUpdateDestroy()
         {
-            if (string.IsNullOrEmpty(ConsulRoot))
-            {
-                Assert.Inconclusive();
-            }
-            var c = new Client(new Config() {Token = ConsulRoot});
+            Skip.If(string.IsNullOrEmpty(ConsulRoot));
 
-            var res = c.ACL.Clone(ConsulRoot);
+            var client = new ConsulClient(new ConsulClientConfiguration() { Token = ConsulRoot });
 
-            var ae = c.ACL.Info(res.Response);
-            ae.Response.Rules = "key \"\" { policy = \"deny\" }";
-            c.ACL.Update(ae.Response);
+            var cloneRequest = await client.ACL.Clone(ConsulRoot);
+            var aclID = cloneRequest.Response;
 
-            var ae2 = c.ACL.Info(res.Response);
-            Assert.AreEqual("key \"\" { policy = \"deny\" }", ae2.Response.Rules);
+            var aclEntry = await client.ACL.Info(aclID);
+            aclEntry.Response.Rules = "key \"\" { policy = \"deny\" }";
+            await client.ACL.Update(aclEntry.Response);
 
-            var id = res.Response;
+            var aclEntry2 = await client.ACL.Info(aclID);
+            Assert.Equal("key \"\" { policy = \"deny\" }", aclEntry2.Response.Rules);
 
-            Assert.AreNotEqual(res.RequestTime.TotalMilliseconds, 0);
-            Assert.IsFalse(string.IsNullOrEmpty(res.Response));
+            var id = cloneRequest.Response;
 
-            var des = c.ACL.Destroy(id);
-            Assert.IsTrue(des.Response);
+            Assert.NotEqual(TimeSpan.Zero, cloneRequest.RequestTime);
+            Assert.False(string.IsNullOrEmpty(aclID));
+
+            Assert.True((await client.ACL.Destroy(id)).Response);
         }
 
-        [TestMethod]
-        public void ACL_Info()
+        [Fact]
+        public async Task ACL_Info()
         {
-            if (string.IsNullOrEmpty(ConsulRoot))
-            {
-                Assert.Inconclusive();
-            }
-            var c = new Client(new Config() {Token = ConsulRoot});
+            Skip.If(string.IsNullOrEmpty(ConsulRoot));
 
-            var res = c.ACL.Info(ConsulRoot);
+            var client = new ConsulClient(new ConsulClientConfiguration() { Token = ConsulRoot });
 
-            Assert.IsNotNull(res.Response);
-            Assert.AreNotEqual(res.RequestTime.TotalMilliseconds, 0);
-            Assert.AreEqual(res.Response.ID, ConsulRoot);
-            Assert.AreEqual(res.Response.Type, ACLType.Management);
+            var aclEntry = await client.ACL.Info(ConsulRoot);
+
+            Assert.NotNull(aclEntry.Response);
+            Assert.NotEqual(TimeSpan.Zero, aclEntry.RequestTime);
+            Assert.Equal(aclEntry.Response.ID, ConsulRoot);
+            Assert.Equal(aclEntry.Response.Type, ACLType.Management);
         }
 
-        [TestMethod]
-        public void ACL_List()
+        [Fact]
+        public async Task ACL_List()
         {
-            if (string.IsNullOrEmpty(ConsulRoot))
-            {
-                Assert.Inconclusive();
-            }
-            var c = new Client(new Config() {Token = ConsulRoot});
+            Skip.If(string.IsNullOrEmpty(ConsulRoot));
 
-            var res = c.ACL.List();
+            var client = new ConsulClient(new ConsulClientConfiguration() { Token = ConsulRoot });
 
-            Assert.IsNotNull(res.Response);
-            Assert.AreNotEqual(res.RequestTime.TotalMilliseconds, 0);
-            Assert.IsTrue(res.Response.Length >= 2);
+            var aclList = await client.ACL.List();
+
+            Assert.NotNull(aclList.Response);
+            Assert.NotEqual(TimeSpan.Zero, aclList.RequestTime);
+            Assert.True(aclList.Response.Length >= 2);
         }
     }
 }

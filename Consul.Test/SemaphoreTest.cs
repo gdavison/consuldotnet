@@ -20,339 +20,458 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Xunit;
 
 namespace Consul.Test
 {
-    [TestClass]
+    [Trait("speed", "slow")]
     public class SemaphoreTest
     {
-
-        [TestMethod]
+        [Fact]
         public void Semaphore_BadLimit()
         {
-            var c = ClientTest.MakeClient();
+            var client = new ConsulClient();
+
+            const string keyName = "test/semaphore/badlimit";
+
             try
             {
-                c.Semaphore("test/semaphore", 0);
+                client.Semaphore(keyName, 0);
             }
             catch (ArgumentOutOfRangeException ex)
             {
-                Assert.IsInstanceOfType(ex, typeof(ArgumentOutOfRangeException));
+                Assert.IsType<ArgumentOutOfRangeException>(ex);
             }
 
-            var s = c.Semaphore("test/semaphore", 1);
-            s.Acquire(CancellationToken.None);
+            var semaphore1 = client.Semaphore(keyName, 1);
+            semaphore1.Acquire(CancellationToken.None);
 
             try
             {
-                var s2 = c.Semaphore("test/semaphore", 2);
-                s2.Acquire(CancellationToken.None);
+                var semaphore2 = client.Semaphore(keyName, 2);
+                semaphore2.Acquire(CancellationToken.None);
             }
             catch (SemaphoreLimitConflictException ex)
             {
-                Assert.IsInstanceOfType(ex, typeof(SemaphoreLimitConflictException));
-                Assert.AreEqual(1, ex.RemoteLimit);
-                Assert.AreEqual(2, ex.LocalLimit);
+                Assert.IsType<SemaphoreLimitConflictException>(ex);
+                Assert.Equal(1, ex.RemoteLimit);
+                Assert.Equal(2, ex.LocalLimit);
             }
 
             try
             {
-                s.Release();
-                s.Destroy();
+                semaphore1.Release();
+                semaphore1.Destroy();
             }
             catch (SemaphoreNotHeldException ex)
             {
-                Assert.IsInstanceOfType(ex, typeof(SemaphoreNotHeldException));
+                Assert.IsType<SemaphoreNotHeldException>(ex);
             }
 
-            Assert.IsFalse(s.IsHeld);
+            Assert.False(semaphore1.IsHeld);
         }
-        [TestMethod]
+        [Fact]
         public void Semaphore_AcquireRelease()
         {
-            var c = ClientTest.MakeClient();
-            var s = c.Semaphore("test/semaphore", 2);
+            var client = new ConsulClient();
+
+            const string keyName = "test/semaphore/acquirerelease";
+
+            var semaphore = client.Semaphore(keyName, 2);
 
             try
             {
-                s.Release();
+                semaphore.Release();
             }
             catch (SemaphoreNotHeldException ex)
             {
-                Assert.IsInstanceOfType(ex, typeof(SemaphoreNotHeldException));
+                Assert.IsType<SemaphoreNotHeldException>(ex);
             }
 
-            s.Acquire(CancellationToken.None);
+            semaphore.Acquire(CancellationToken.None);
 
-            Assert.IsTrue(s.IsHeld);
+            Assert.True(semaphore.IsHeld);
 
             try
             {
-                s.Acquire(CancellationToken.None);
+                semaphore.Acquire(CancellationToken.None);
             }
             catch (SemaphoreHeldException ex)
             {
-                Assert.IsInstanceOfType(ex, typeof(SemaphoreHeldException));
+                Assert.IsType<SemaphoreHeldException>(ex);
             }
 
-            Assert.IsTrue(s.IsHeld);
+            Assert.True(semaphore.IsHeld);
 
-            s.Release();
+            semaphore.Release();
 
             try
             {
-                s.Release();
+                semaphore.Release();
             }
             catch (SemaphoreNotHeldException ex)
             {
-                Assert.IsInstanceOfType(ex, typeof(SemaphoreNotHeldException));
+                Assert.IsType<SemaphoreNotHeldException>(ex);
             }
 
-            Assert.IsFalse(s.IsHeld);
+            Assert.False(semaphore.IsHeld);
         }
 
-        [TestMethod]
+        [Fact]
+        public void Semaphore_OneShot()
+        {
+            var client = new ConsulClient();
+            const string keyName = "test/semaphore/oneshot";
+            var semaphoreOptions = new SemaphoreOptions(keyName, 2)
+            {
+                SemaphoreTryOnce = true
+            };
+
+            Assert.Equal(Semaphore.DefaultSemaphoreWaitTime, semaphoreOptions.SemaphoreWaitTime);
+
+            semaphoreOptions.SemaphoreWaitTime = TimeSpan.FromMilliseconds(250);
+
+            var semaphorekey = client.Semaphore(semaphoreOptions);
+
+            semaphorekey.Acquire(CancellationToken.None);
+
+            var another = client.Semaphore(new SemaphoreOptions(keyName, 2)
+            {
+                SemaphoreTryOnce = true,
+                SemaphoreWaitTime = TimeSpan.FromMilliseconds(250)
+            });
+
+            another.Acquire();
+
+            var contender = client.Semaphore(new SemaphoreOptions(keyName, 2)
+            {
+                SemaphoreTryOnce = true,
+                SemaphoreWaitTime = TimeSpan.FromMilliseconds(250)
+            });
+
+            Task.WaitAny(Task.Run(() =>
+            {
+                Assert.Throws<SemaphoreMaxAttemptsReachedException>(() =>
+                contender.Acquire()
+                );
+            }),
+            Task.Delay(2 * semaphoreOptions.SemaphoreWaitTime.Milliseconds).ContinueWith((t) => Assert.True(false, "Took too long"))
+            );
+
+            semaphorekey.Release();
+            another.Release();
+            contender.Destroy();
+        }
+
+        [Fact]
+        public void Semaphore_Disposable()
+        {
+            var client = new ConsulClient();
+
+            const string keyName = "test/semaphore/disposable";
+            using (var semaphore = client.AcquireSemaphore(keyName, 2))
+            {
+                Assert.True(semaphore.IsHeld);
+            }
+        }
+        [Fact]
+        public void Semaphore_ExecuteAction()
+        {
+            var client = new ConsulClient();
+
+            const string keyName = "test/semaphore/action";
+            client.ExecuteInSemaphore(keyName, 2, () => Assert.True(true));
+        }
+        [Fact]
         public void Semaphore_AcquireWaitRelease()
         {
-            var semaphoreOptions = new SemaphoreOptions("test/semaphore", 1)
+
+            var client = new ConsulClient();
+
+            const string keyName = "test/semaphore/acquirewaitrelease";
+
+            var semaphoreOptions = new SemaphoreOptions(keyName, 1)
             {
                 SessionName = "test_semaphoresession",
-                SessionTTL = TimeSpan.FromSeconds(10)
+                SessionTTL = TimeSpan.FromSeconds(10), MonitorRetries = 10
             };
-            var c = ClientTest.MakeClient();
 
-            var s = c.Semaphore(semaphoreOptions);
+            var semaphore = client.Semaphore(semaphoreOptions);
 
-            s.Acquire(CancellationToken.None);
+            semaphore.Acquire(CancellationToken.None);
 
-            Assert.IsTrue(s.IsHeld);
+            Assert.True(semaphore.IsHeld);
 
             // Wait for multiple renewal cycles to ensure the semaphore session stays renewed.
             Task.Delay(TimeSpan.FromSeconds(60)).Wait();
-            Assert.IsTrue(s.IsHeld);
+            Assert.True(semaphore.IsHeld);
 
-            s.Release();
+            semaphore.Release();
 
-            Assert.IsFalse(s.IsHeld);
+            Assert.False(semaphore.IsHeld);
 
-            s.Destroy();
+            semaphore.Destroy();
         }
 
-        [TestMethod]
-        public void Semaphore_Contend()
+        [Fact]
+        public void Semaphore_ContendWait()
         {
-            var c = ClientTest.MakeClient();
+            var client = new ConsulClient();
 
-            var acquired = new bool[4];
+            const string keyName = "test/semaphore/contend";
+            const int contenderPool = 4;
 
-            var acquireTasks = new Task[4];
-
-            for (var i = 0; i < 4; i++)
+            var acquired = new System.Collections.Concurrent.ConcurrentDictionary<int, bool>();
+            using (var cts = new CancellationTokenSource())
             {
-                var v = i;
-                acquireTasks[i] = new Task(() =>
+                cts.CancelAfter((contenderPool - 1) * (int)Semaphore.DefaultSemaphoreWaitTime.TotalMilliseconds);
+
+                Parallel.For(0, contenderPool, new ParallelOptions { MaxDegreeOfParallelism = contenderPool, CancellationToken = cts.Token }, (v) =>
                 {
-                    var s = c.Semaphore("test/semaphore", 2);
-                    s.Acquire(CancellationToken.None);
-                    acquired[v] = s.IsHeld;
-                    if (s.IsHeld)
-                    {
-                        Debug.WriteLine("Contender {0} acquired", v);
-                    }
-                    s.Release();
+                    var semaphore = client.Semaphore(keyName, 2);
+                    semaphore.Acquire(CancellationToken.None);
+                    acquired[v] = semaphore.IsHeld;
+                    Task.Delay(1000).Wait();
+                    semaphore.Release();
                 });
-                acquireTasks[v].Start();
             }
 
-            Task.WaitAll(acquireTasks, (int)(3 * Semaphore.DefaultSemaphoreRetryTime.TotalMilliseconds));
-
-            foreach (var item in acquired)
+            for (var i = 0; i < contenderPool; i++)
             {
-                Assert.IsTrue(item);
+                if (acquired[i])
+                {
+                    Assert.True(acquired[i]);
+                }
+                else
+                {
+                    Assert.True(false, "Contender " + i.ToString() + " did not acquire the lock");
+                }
+            }
+        }
+        [Fact]
+        public void Semaphore_ContendFast()
+        {
+            var client = new ConsulClient();
+
+            const string keyName = "test/semaphore/contend";
+            const int contenderPool = 15;
+
+            var acquired = new System.Collections.Concurrent.ConcurrentDictionary<int, bool>();
+            using (var cts = new CancellationTokenSource())
+            {
+                cts.CancelAfter((contenderPool - 1) * (int)Semaphore.DefaultSemaphoreWaitTime.TotalMilliseconds);
+
+                Parallel.For(0, contenderPool, new ParallelOptions { MaxDegreeOfParallelism = contenderPool, CancellationToken = cts.Token }, (v) =>
+                {
+                    var semaphore = client.Semaphore(keyName, 2);
+                    semaphore.Acquire(CancellationToken.None);
+                    acquired[v] = semaphore.IsHeld;
+                    semaphore.Release();
+                });
+            }
+
+            for (var i = 0; i < contenderPool; i++)
+            {
+                if (acquired[i])
+                {
+                    Assert.True(acquired[i]);
+                }
+                else
+                {
+                    Assert.True(false, "Contender " + i.ToString() + " did not acquire the lock");
+                }
             }
         }
 
-        [TestMethod]
+        [Fact]
         public void Semaphore_Destroy()
         {
-            var c = ClientTest.MakeClient();
-            var key = "test/semaphore";
-            var s = c.Semaphore(key, 2);
-            var s2 = c.Semaphore(key, 2);
+            var c = new ConsulClient();
+
+            const string keyName = "test/semaphore/destroy";
+
+            var semaphore1 = c.Semaphore(keyName, 2);
+            var semaphore2 = c.Semaphore(keyName, 2);
             try
             {
-                s.Acquire(CancellationToken.None);
-                Assert.IsTrue(s.IsHeld);
-                s2.Acquire(CancellationToken.None);
-                Assert.IsTrue(s2.IsHeld);
+                semaphore1.Acquire(CancellationToken.None);
+                Assert.True(semaphore1.IsHeld);
+                semaphore2.Acquire(CancellationToken.None);
+                Assert.True(semaphore2.IsHeld);
 
                 try
                 {
-                    s.Destroy();
-                    Assert.Fail();
+                    semaphore1.Destroy();
+                    Assert.True(false);
                 }
                 catch (SemaphoreHeldException ex)
                 {
-                    Assert.IsInstanceOfType(ex, typeof(SemaphoreHeldException));
+                    Assert.IsType<SemaphoreHeldException>(ex);
                 }
 
-                s.Release();
-                Assert.IsFalse(s.IsHeld);
+                semaphore1.Release();
+                Assert.False(semaphore1.IsHeld);
 
                 try
                 {
-                    s.Destroy();
-                    Assert.Fail();
+                    semaphore1.Destroy();
+                    Assert.True(false);
                 }
                 catch (SemaphoreInUseException ex)
                 {
-                    Assert.IsInstanceOfType(ex, typeof(SemaphoreInUseException));
+                    Assert.IsType<SemaphoreInUseException>(ex);
                 }
 
-                s2.Release();
-                Assert.IsFalse(s2.IsHeld);
-                s.Destroy();
-                s2.Destroy();
+                semaphore2.Release();
+                Assert.False(semaphore2.IsHeld);
+                semaphore1.Destroy();
+                semaphore2.Destroy();
             }
             finally
             {
                 try
                 {
-                    s.Release();
+                    semaphore1.Release();
                 }
                 catch (SemaphoreNotHeldException ex)
                 {
-                    Assert.IsInstanceOfType(ex, typeof(SemaphoreNotHeldException));
+                    Assert.IsType<SemaphoreNotHeldException>(ex);
                 }
                 try
                 {
-                    s2.Release();
+                    semaphore2.Release();
                 }
                 catch (SemaphoreNotHeldException ex)
                 {
-                    Assert.IsInstanceOfType(ex, typeof(SemaphoreNotHeldException));
+                    Assert.IsType<SemaphoreNotHeldException>(ex);
                 }
             }
         }
 
-        [TestMethod]
+        [Fact]
         public void Semaphore_ForceInvalidate()
         {
-            var c = ClientTest.MakeClient();
-            var s = c.Semaphore("test/semaphore", 2);
+            var client = new ConsulClient();
+
+            const string keyName = "test/semaphore/forceinvalidate";
+
+            var semaphore = (Semaphore)client.Semaphore(keyName, 2);
 
             try
             {
-                s.Acquire(CancellationToken.None);
+                semaphore.Acquire(CancellationToken.None);
 
-                Assert.IsTrue(s.IsHeld);
+                Assert.True(semaphore.IsHeld);
 
-                c.Session.Destroy(s.LockSession);
-
-                var checker = new Task(() =>
+                var checker = Task.Run(() =>
                 {
-                    while (s.IsHeld)
+                    while (semaphore.IsHeld)
                     {
                         Thread.Sleep(10);
                     }
-                });
 
-                checker.Start();
+                    Assert.False(semaphore.IsHeld);
+                });
 
                 Task.WaitAny(new[] { checker }, 1000);
 
-                Assert.IsFalse(s.IsHeld);
+                client.Session.Destroy(semaphore.LockSession);
             }
             finally
             {
                 try
                 {
-                    s.Release();
+                    semaphore.Release();
+                    semaphore.Destroy();
                 }
                 catch (SemaphoreNotHeldException ex)
                 {
-                    Assert.IsInstanceOfType(ex, typeof(SemaphoreNotHeldException));
+                    Assert.IsType<SemaphoreNotHeldException>(ex);
                 }
             }
         }
 
-        [TestMethod]
-        public void Semaphore_DeleteKey()
+        [Fact]
+        public async Task Semaphore_DeleteKey()
         {
-            var c = ClientTest.MakeClient();
-            var s = c.Semaphore("test/semaphore", 2);
+            var client = new ConsulClient();
+
+            const string keyName = "test/semaphore/deletekey";
+
+            var semaphore = (Semaphore)client.Semaphore(keyName, 2);
 
             try
             {
-                s.Acquire(CancellationToken.None);
+                semaphore.Acquire(CancellationToken.None);
 
-                Assert.IsTrue(s.IsHeld);
+                Assert.True(semaphore.IsHeld);
 
-                var req = c.KV.DeleteTree(s.Opts.Prefix);
-                Assert.IsTrue(req.Response);
-
-                var checker = new Task(() =>
+                var checker = Task.Run(() =>
                 {
-                    while (s.IsHeld)
+                    while (semaphore.IsHeld)
                     {
                         Thread.Sleep(10);
                     }
-                });
 
-                checker.Start();
+                    Assert.False(semaphore.IsHeld);
+                });
 
                 Task.WaitAny(new[] { checker }, 1000);
 
-                Assert.IsFalse(s.IsHeld);
+                var req = await client.KV.DeleteTree(semaphore.Opts.Prefix);
+                Assert.True(req.Response);
             }
             finally
             {
                 try
                 {
-                    s.Release();
+                    semaphore.Release();
                 }
                 catch (SemaphoreNotHeldException ex)
                 {
-                    Assert.IsInstanceOfType(ex, typeof(SemaphoreNotHeldException));
+                    Assert.IsType<SemaphoreNotHeldException>(ex);
                 }
             }
         }
 
-        [TestMethod]
+        [Fact]
         public void Semaphore_Conflict()
         {
-            var c = ClientTest.MakeClient();
+            var client = new ConsulClient();
 
-            var semaphoreLock = c.CreateLock("test/sema/.lock");
+            const string keyName = "test/semaphore/conflict";
+
+            var semaphoreLock = client.CreateLock(keyName + "/.lock");
 
             semaphoreLock.Acquire(CancellationToken.None);
 
-            Assert.IsTrue(semaphoreLock.IsHeld);
+            Assert.True(semaphoreLock.IsHeld);
 
-            var s = c.Semaphore("test/sema", 2);
-
-            try
-            {
-                s.Acquire(CancellationToken.None);
-            }
-            catch (SemaphoreConflictException ex)
-            {
-                Assert.IsInstanceOfType(ex, typeof(SemaphoreConflictException));
-            }
+            var semaphore = client.Semaphore(keyName, 2);
 
             try
             {
-                s.Destroy();
+                semaphore.Acquire(CancellationToken.None);
             }
             catch (SemaphoreConflictException ex)
             {
-                Assert.IsInstanceOfType(ex, typeof(SemaphoreConflictException));
+                Assert.IsType<SemaphoreConflictException>(ex);
+            }
+
+            try
+            {
+                semaphore.Destroy();
+            }
+            catch (SemaphoreConflictException ex)
+            {
+                Assert.IsType<SemaphoreConflictException>(ex);
             }
 
             semaphoreLock.Release();
 
-            Assert.IsFalse(semaphoreLock.IsHeld);
+            Assert.False(semaphoreLock.IsHeld);
+
+            semaphoreLock.Destroy();
         }
     }
 }

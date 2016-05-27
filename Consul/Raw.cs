@@ -16,6 +16,8 @@
 //  </copyright>
 // -----------------------------------------------------------------------
 
+using System;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Consul
@@ -23,13 +25,13 @@ namespace Consul
     /// <summary>
     /// Raw can be used to do raw queries against custom endpoints
     /// </summary>
-    public class Raw
+    public class Raw : IRawEndpoint
     {
-        public Client Client { get; set; }
+        private readonly ConsulClient _client;
 
-        public Raw(Client client)
+        internal Raw(ConsulClient c)
         {
-            Client = client;
+            _client = c;
         }
 
         /// <summary>
@@ -38,11 +40,23 @@ namespace Consul
         /// <param name="endpoint">The URL endpoint to access</param>
         /// <param name="q">Custom query options</param>
         /// <returns>The data returned by the custom endpoint</returns>
-        public  QueryResult<dynamic> Query(string endpoint, QueryOptions q)
+        public Task<QueryResult<dynamic>> Query(string endpoint, QueryOptions q)
         {
-            return Client.CreateQueryRequest<dynamic>(endpoint, q).Execute();
+            return Query(endpoint, q, CancellationToken.None);
         }
 
+        /// <summary>
+        /// Query is used to do a GET request against an endpoint and deserialize the response into an interface using standard Consul conventions.
+        /// </summary>
+        /// <param name="endpoint">The URL endpoint to access</param>
+        /// <param name="q">Custom query options</param>
+        /// <param name="ct">Cancellation token for long poll request. If set, OperationCanceledException will be thrown if the request is cancelled before completing</param>
+        /// <returns>The data returned by the custom endpoint</returns>
+        public Task<QueryResult<dynamic>> Query(string endpoint, QueryOptions q, CancellationToken ct)
+        {
+            return _client.Get<dynamic>(endpoint, q).Execute(ct);
+        }
+        
         /// <summary>
         /// Write is used to do a PUT request against an endpoint and serialize/deserialized using the standard Consul conventions.
         /// </summary>
@@ -50,20 +64,20 @@ namespace Consul
         /// <param name="obj">The object to serialize and send to the endpoint. Must be able to be JSON serialized, or be an object of type byte[], which is sent without serialzation.</param>
         /// <param name="q">Custom write options</param>
         /// <returns>The data returned by the custom endpoint in response to the write request</returns>
-        public WriteResult<dynamic> Write(string endpoint, object obj, WriteOptions q)
+        public Task<WriteResult<dynamic>> Write(string endpoint, object obj, WriteOptions q)
         {
-            return Client.CreateWriteRequest<object, dynamic>(endpoint, obj, q).Execute();
+            return _client.Put<object, dynamic>(endpoint, obj, q).Execute();
         }
     }
 
-    public partial class Client
+    public partial class ConsulClient : IConsulClient
     {
         private Raw _raw;
 
         /// <summary>
         /// Raw returns a handle to query endpoints
         /// </summary>
-        public Raw Raw
+        public IRawEndpoint Raw
         {
             get
             {

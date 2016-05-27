@@ -1,5 +1,5 @@
 ﻿// -----------------------------------------------------------------------
-//  <copyright file="StatusTest.cs" company="PlayFab Inc">
+//  <copyright file="Health.cs" company="PlayFab Inc">
 //    Copyright 2015 PlayFab Inc.
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,27 +16,13 @@
 //  </copyright>
 // -----------------------------------------------------------------------
 
-using System.Threading.Tasks;
-using Xunit;
+using System;
+using System.Threading;
 
-namespace Consul.Test
+namespace Consul
 {
-    public class Status
+    public interface IDisposableLock : IDistributedLock, IDisposable
     {
-        [Fact]
-        public async Task Status_Leader()
-        {
-            var client = new ConsulClient();
-            var leader = await client.Status.Leader();
-            Assert.False(string.IsNullOrEmpty(leader));
-        }
-
-        [Fact]
-        public async Task Status_Peers()
-        {
-            var client = new ConsulClient();
-            var peers = await client.Status.Peers();
-            Assert.True(peers.Length > 0);
-        }
+        CancellationToken CancellationToken { get; }
     }
 }

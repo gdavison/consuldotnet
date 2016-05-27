@@ -17,34 +17,34 @@
 // -----------------------------------------------------------------------
 
 using System;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Threading.Tasks;
+using Xunit;
 
 namespace Consul.Test
 {
-    [TestClass]
     public class HealthTest
     {
-        [TestMethod]
-        public void Health_Node()
+        [Fact]
+        public async Task Health_Node()
         {
-            var c = ClientTest.MakeClient();
+            var client = new ConsulClient();
 
-            var info = c.Agent.Self();
-            var checks = c.Health.Node((string) info.Response["Config"]["NodeName"]);
+            var info = await client.Agent.Self();
+            var checks = await client.Health.Node((string)info.Response["Config"]["NodeName"]);
 
-            Assert.AreNotEqual(0, checks.LastIndex);
-            Assert.AreNotEqual(0, checks.Response.Length);
+            Assert.NotEqual((ulong)0, checks.LastIndex);
+            Assert.NotEqual(0, checks.Response.Length);
         }
 
-        [TestMethod]
-        public void Health_Checks()
+        [Fact]
+        public async Task Health_Checks()
         {
-            var c = ClientTest.MakeClient();
+            var client = new ConsulClient();
 
-            var reg = new AgentServiceRegistration()
+            var registration = new AgentServiceRegistration()
             {
                 Name = "foo",
-                Tags = new[] {"bar", "baz"},
+                Tags = new[] { "bar", "baz" },
                 Port = 8000,
                 Check = new AgentServiceCheck
                 {
@@ -53,35 +53,35 @@ namespace Consul.Test
             };
             try
             {
-                c.Agent.ServiceRegister(reg);
-                var checks = c.Health.Checks("foo");
-                Assert.AreNotEqual(0, checks.LastIndex);
-                Assert.AreNotEqual(0, checks.Response.Length);
+                await client.Agent.ServiceRegister(registration);
+                var checks = await client.Health.Checks("foo");
+                Assert.NotEqual((ulong)0, checks.LastIndex);
+                Assert.NotEqual(0, checks.Response.Length);
             }
             finally
             {
-                c.Agent.ServiceDeregister("foo");
+                await client.Agent.ServiceDeregister("foo");
             }
         }
 
-        [TestMethod]
-        public void Health_Service()
+        [Fact]
+        public async Task Health_Service()
         {
-            var c = ClientTest.MakeClient();
+            var client = new ConsulClient();
 
-            var checks = c.Health.Service("consul", "", true);
-            Assert.AreNotEqual(0, checks.LastIndex);
-            Assert.AreNotEqual(0, checks.Response.Length);
+            var checks = await client.Health.Service("consul", "", true);
+            Assert.NotEqual((ulong)0, checks.LastIndex);
+            Assert.NotEqual(0, checks.Response.Length);
         }
 
-        [TestMethod]
-        public void Health_State()
+        [Fact]
+        public async Task Health_State()
         {
-            var c = ClientTest.MakeClient();
+            var client = new ConsulClient();
 
-            var checks = c.Health.State(CheckStatus.Any);
-            Assert.AreNotEqual(0, checks.LastIndex);
-            Assert.AreNotEqual(0, checks.Response.Length);
+            var checks = await client.Health.State(CheckStatus.Any);
+            Assert.NotEqual((ulong)0, checks.LastIndex);
+            Assert.NotEqual(0, checks.Response.Length);
         }
     }
 }

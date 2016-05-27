@@ -1,5 +1,5 @@
 ﻿// -----------------------------------------------------------------------
-//  <copyright file="GoDuration.cs" company="PlayFab Inc">
+//  <copyright file="Health.cs" company="PlayFab Inc">
 //    Copyright 2015 PlayFab Inc.
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,19 +23,16 @@ using System.Text.RegularExpressions;
 
 namespace Consul
 {
-    /// <summary>
-    /// Utility class to convert to/from GoLang duration strings
-    /// </summary>
-    public class Duration
+    internal static class Extensions
     {
-        public const ulong Nanosecond = Microsecond/1000;
-        public const ulong Microsecond = Millisecond/1000;
-        public const ulong Millisecond = 1;
-        public const ulong Second = 1000*Millisecond;
-        public const ulong Minute = 60*Second;
-        public const ulong Hour = 60*Minute;
+        internal const double Nanosecond = Microsecond / 1000;
+        internal const double Microsecond = Millisecond / 1000;
+        internal const double Millisecond = 1;
+        internal const double Second = 1000 * Millisecond;
+        internal const double Minute = 60 * Second;
+        internal const double Hour = 60 * Minute;
 
-        public static Dictionary<string, double> UnitMap = new Dictionary<string, double>()
+        internal static readonly Dictionary<string, double> UnitMap = new Dictionary<string, double>()
         {
             {"ns", Nanosecond},
             {"us", Microsecond},
@@ -46,43 +43,45 @@ namespace Consul
             {"m", Minute},
             {"h", Hour}
         };
-
-        public static string ToDuration(TimeSpan ts)
+        internal static string ToGoDuration(this TimeSpan ts)
         {
-            var outDuration = new StringBuilder();
+            if (ts == TimeSpan.Zero)
+            {
+                return "0";
+            }
+
             if (ts.TotalSeconds < 1)
             {
-                outDuration.Append(ts.TotalMilliseconds.ToString("#ms"));
+                return ts.TotalMilliseconds.ToString("#ms");
             }
             else
             {
-                if ((int) ts.TotalHours > 0)
+                var outDuration = new StringBuilder();
+                if ((int)ts.TotalHours > 0)
                 {
                     outDuration.Append(ts.TotalHours.ToString("#h"));
                 }
-                if ((int) ts.TotalMinutes > 0)
+                if (ts.Minutes > 0)
                 {
-                    outDuration.Append(ts.Minutes.ToString("#m"));
+                    outDuration.Append(ts.ToString("%m'm'"));
                 }
-                if ((int) ts.TotalSeconds > 0)
+                if (ts.Seconds > 0)
                 {
-                    outDuration.Append(ts.Seconds.ToString("#"));
+                    outDuration.Append(ts.ToString("%s"));
                 }
-
                 if (ts.Milliseconds > 0)
                 {
                     outDuration.Append(".");
-                    outDuration.Append(ts.Milliseconds.ToString("#"));
+                    outDuration.Append(ts.ToString("fff"));
                 }
                 if (ts.Seconds > 0)
                 {
                     outDuration.Append("s");
                 }
+                return outDuration.ToString();
             }
-            return outDuration.ToString();
         }
-
-        public static TimeSpan Parse(string value)
+        internal static TimeSpan FromGoDuration(string value)
         {
             const string pattern = @"([0-9]*(?:\.[0-9]*)?)([a-z]+)";
 
@@ -94,7 +93,7 @@ namespace Consul
             ulong result;
             if (ulong.TryParse(value, out result))
             {
-                return TimeSpan.FromTicks((long) (result/100));
+                return TimeSpan.FromTicks((long)(result / 100));
             }
 
             var matches = Regex.Matches(value, pattern);
@@ -111,7 +110,7 @@ namespace Consul
                 {
                     if (UnitMap.ContainsKey(match.Groups[2].Value))
                     {
-                        time += res*UnitMap[match.Groups[2].Value];
+                        time += res * UnitMap[match.Groups[2].Value];
                     }
                     else
                     {

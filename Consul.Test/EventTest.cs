@@ -16,34 +16,36 @@
 //  </copyright>
 // -----------------------------------------------------------------------
 
+using System;
 using System.Threading;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Threading.Tasks;
+using Xunit;
 
 namespace Consul.Test
-{
-    [TestClass]
+{    
     public class EventTest
     {
-        [TestMethod]
-        public void Event_FireList()
+        [Fact]
+        public async Task Event_FireList()
         {
-            var c = ClientTest.MakeClient();
+            var client = new ConsulClient();
 
-            var p = new UserEvent()
+            var userevent = new UserEvent()
             {
                 Name = "foo"
             };
 
-            var res = c.Event.Fire(p);
+            var res = await client.Event.Fire(userevent);
 
-            Thread.Sleep(100);
-            Assert.AreNotEqual(0, res.RequestTime);
-            Assert.IsFalse(string.IsNullOrEmpty(res.Response));
+            await Task.Delay(100);
 
-            var events = c.Event.List();
-            Assert.AreNotEqual(0, events.Response.Length);
-            Assert.AreEqual(res.Response, events.Response[events.Response.Length - 1].ID);
-            Assert.AreEqual(c.Event.IDToIndex(res.Response), events.LastIndex);
+            Assert.NotEqual(TimeSpan.Zero, res.RequestTime);
+            Assert.False(string.IsNullOrEmpty(res.Response));
+
+            var events = await client.Event.List();
+            Assert.NotEqual(0, events.Response.Length);
+            Assert.Equal(res.Response, events.Response[events.Response.Length - 1].ID);
+            Assert.Equal(client.Event.IDToIndex(res.Response), events.LastIndex);
         }
     }
 }
